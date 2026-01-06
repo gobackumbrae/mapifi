@@ -1,0 +1,15 @@
+name = "mapifi"
+main = "src/worker.js"
+compatibility_date = "2026-01-06"
+workers_dev = true
+
+[vars]
+GTFS_RT_URL = "https://example.com/vehiclePositions.pb?key={{API_KEY}}"
+GTFS_RT_AUTH_HEADER = ""
+GTFS_RT_AUTH_QUERY = ""
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [ "/api/*" ]

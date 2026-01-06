@@ -1,0 +1,46 @@
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+#map {
+  height: 100%;
+  width: 100%;
+}
+
+#hud {
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 1000;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font: 14px/1.25 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+#hud-line-2 {
+  opacity: 0.9;
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.veh-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+}
+
+.veh {
+  display: inline-block;
+  font-size: 28px;
+  line-height: 1;
+  transform-origin: 50% 50%;
+  will-change: transform;
+  user-select: none;
+}
