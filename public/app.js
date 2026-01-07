@@ -4,7 +4,7 @@ const API_URL = "/api/vehicles";
 const POLL_MS = 15000;
 
 // Side-view emoji only.
-const VEHICLE_EMOJI = "🚌";
+const VEHICLE_EMOJI = "🚗";
 
 const hud1 = document.getElementById("hud-line-1");
 const hud2 = document.getElementById("hud-line-2");
