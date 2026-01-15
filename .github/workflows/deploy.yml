@@ -15,13 +15,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
+      - uses: actions/setup-node@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
-          secrets: |
-            GTFS_API_KEY
+          node-version: "20"
+
+      - name: Install Wrangler
+        run: npm i -g wrangler@4.59.1
+
+      - name: Deploy
+        run: wrangler deploy
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Upload Worker secret (GTFS_API_KEY)
+        run: |
+          node - <<'NODE' | wrangler secret bulk
+          const v = process.env.GTFS_API_KEY || "";
+          process.stdout.write(JSON.stringify({ GTFS_API_KEY: v }) + "\n");
+          NODE
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GTFS_API_KEY: ${{ secrets.GTFS_API_KEY }}
