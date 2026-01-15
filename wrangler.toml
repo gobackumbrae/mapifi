@@ -12,4 +12,3 @@ GTFS_RT_AUTH_QUERY = ""
 directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = [ "/api/*" ]
