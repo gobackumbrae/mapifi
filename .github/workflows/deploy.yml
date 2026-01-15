@@ -23,15 +23,20 @@ jobs:
         run: npm i -g wrangler@4.59.1
 
       - name: Deploy
-        run: wrangler deploy
+        run: |
+          export CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '\r\n')"
+          export CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '\r\n')"
+          wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Upload Worker secret (GTFS_API_KEY)
         run: |
+          export CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '\r\n')"
+          export CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '\r\n')"
           node - <<'NODE' | wrangler secret bulk
-          const v = process.env.GTFS_API_KEY || "";
+          const v = (process.env.GTFS_API_KEY || "").replace(/[\r\n]/g, "");
           process.stdout.write(JSON.stringify({ GTFS_API_KEY: v }) + "\n");
           NODE
         env:
