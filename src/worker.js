@@ -123,7 +123,7 @@ function buildUpstreamRequest(env) {
   let url = env.GTFS_RT_URL;
   if (!url) throw new Error("GTFS_RT_URL is not set");
 
-  const apiKey = env.GTFS_API_KEY || "";
+  const apiKey = (env.GTFS_API_KEY || "").trim();
 
   if (url.includes("{{API_KEY}}")) {
     if (!apiKey) throw new Error("GTFS_API_KEY is not set");
@@ -152,7 +152,7 @@ function buildUpstreamRequest(env) {
   const headers = {
     accept: "application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
   };
-  if (headerName && apiKey) headers[headerName] = apiKey;
+  if (headerName if (headerName && apiKey) headers[headerName] = apiKey;if (headerName && apiKey) headers[headerName] = apiKey; apiKey) { const low = apiKey.toLowerCase(); headers[headerName] = (headerName.toLowerCase() === "authorization" if (headerName && apiKey) headers[headerName] = apiKey;if (headerName && apiKey) headers[headerName] = apiKey; !low.startsWith("apikey ") if (headerName && apiKey) headers[headerName] = apiKey;if (headerName && apiKey) headers[headerName] = apiKey; !low.startsWith("bearer ")) ? ("apikey " + apiKey) : apiKey; }
 
   return { url, headers };
 }
