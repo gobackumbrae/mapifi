@@ -152,7 +152,15 @@ function buildUpstreamRequest(env) {
   const headers = {
     accept: "application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
   };
-  if (headerName if (headerName && apiKey) headers[headerName] = apiKey;if (headerName && apiKey) headers[headerName] = apiKey; apiKey) { const low = apiKey.toLowerCase(); headers[headerName] = (headerName.toLowerCase() === "authorization" if (headerName && apiKey) headers[headerName] = apiKey;if (headerName && apiKey) headers[headerName] = apiKey; !low.startsWith("apikey ") if (headerName && apiKey) headers[headerName] = apiKey;if (headerName && apiKey) headers[headerName] = apiKey; !low.startsWith("bearer ")) ? ("apikey " + apiKey) : apiKey; }
+  if (headerName && apiKey) {
+    const hn = headerName.toLowerCase();
+    const low = apiKey.toLowerCase();
+    if (hn === "authorization" && !low.startsWith("apikey ") && !low.startsWith("bearer ")) {
+      headers[headerName] = "apikey " + apiKey;
+    } else {
+      headers[headerName] = apiKey;
+    }
+  }
 
   return { url, headers };
 }
