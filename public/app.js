@@ -1,180 +1,138 @@
-// public/app.js
+/* global L */
 
 const API_URL = "/api/vehicles";
-const POLL_MS = 15000;
+const ICON_URL = "/emoji/bus.png";
 
-// Side-view emoji only.
-const VEHICLE_EMOJI = "🚗";
+/*
+  Bearing in GTFS-RT is typically degrees clockwise from North (0 = North, 90 = East).
+  Most emoji artwork points "east" (to the right) when unrotated, so we default to -90deg
+  so that:
+    bearing 90 (east) => rot 0deg (points right)
+  If your bus looks sideways or backwards, tweak this:
+    - sideways: try +90 or -90
+    - backwards: add 180
+*/
+const ICON_HEADING_OFFSET_DEG = -90;
+
+const ICON_SIZE = 36;
+const ICON_ANCHOR = ICON_SIZE / 2;
 
 const hud1 = document.getElementById("hud-line-1");
 const hud2 = document.getElementById("hud-line-2");
 
-const map = L.map("map", { zoomControl: true }).setView([0, 0], 2);
+function setHud(a, b = "") {
+  if (hud1) hud1.textContent = a;
+  if (hud2) hud2.textContent = b;
+}
+
+function clampTtlSeconds(ttl) {
+  const n = Number(ttl);
+  if (!Number.isFinite(n)) return 10;
+  return Math.max(5, Math.min(60, Math.round(n)));
+}
+
+function fmtAgo(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  return `${m}m`;
+}
+
+// Map setup (Sydney-ish default)
+const map = L.map("map", { zoomControl: true }).setView([-33.8688, 151.2093], 11);
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: "&copy; OpenStreetMap contributors",
+  attribution: '&copy; OpenStreetMap contributors',
 }).addTo(map);
 
-tryCenterOnGeolocation();
+const vehicleIcon = L.divIcon({
+  className: "veh",
+  html: `<div class="veh-wrap"><img class="veh-img" src="${ICON_URL}" alt="vehicle" /></div>`,
+  iconSize: [ICON_SIZE, ICON_SIZE],
+  iconAnchor: [ICON_ANCHOR, ICON_ANCHOR],
+});
 
-const markers = new Map(); // id -> { marker, vehEl, rootEl, lastSeenMs, lastLat, lastLon }
-let inFlight = false;
+const markers = new Map(); // id -> L.Marker
+let lastOkAt = 0;
+let timer = null;
 
-scheduleNextPoll(0);
-
-function scheduleNextPoll(delay) {
-  setTimeout(pollOnce, delay);
-}
-
-async function pollOnce() {
-  if (inFlight) {
-    scheduleNextPoll(POLL_MS);
-    return;
-  }
-  inFlight = true;
-
+async function poll() {
   const started = Date.now();
-  hud1.textContent = "Updating…";
-  hud2.textContent = "";
 
   try {
     const res = await fetch(API_URL, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`API ${res.status}`);
 
     const data = await res.json();
+    const ttl = clampTtlSeconds(data.ttl);
     const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
 
-    const now = Date.now();
+    const seen = new Set();
 
     for (const v of vehicles) {
+      if (!v) continue;
+
       const id = String(v.id || "");
+      if (!id) continue;
+
       const lat = Number(v.lat);
       const lon = Number(v.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
-      if (!id || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      seen.add(id);
 
-      let entry = markers.get(id);
-      if (!entry) {
-        const marker = makeEmojiMarker(lat, lon, VEHICLE_EMOJI);
-        marker.addTo(map);
+      let m = markers.get(id);
+      if (!m) {
+        m = L.marker([lat, lon], {
+          icon: vehicleIcon,
+          interactive: false,
+          keyboard: false,
+        }).addTo(map);
 
-        entry = {
-          marker,
-          vehEl: null,
-          rootEl: null,
-          lastSeenMs: now,
-          lastLat: lat,
-          lastLon: lon,
-        };
-        markers.set(id, entry);
+        markers.set(id, m);
       } else {
-        entry.marker.setLatLng([lat, lon]);
-        entry.lastSeenMs = now;
+        m.setLatLng([lat, lon]);
       }
 
-      let bearing = Number(v.bearing);
-      if (!Number.isFinite(bearing)) {
-        bearing = computeBearing(entry.lastLat, entry.lastLon, lat, lon);
+      const bearing = Number(v.bearing);
+      const b = Number.isFinite(bearing) ? bearing : 0;
+      const rot = b + ICON_HEADING_OFFSET_DEG;
+
+      const el = m.getElement();
+      if (el) {
+        el.style.setProperty("--rot", `${rot}deg`);
       }
-
-      applyBearing(entry, bearing);
-
-      entry.lastLat = lat;
-      entry.lastLon = lon;
     }
 
-    const STALE_MS = 120000;
-    for (const [id, entry] of markers) {
-      if (now - entry.lastSeenMs > STALE_MS) {
-        map.removeLayer(entry.marker);
+    // Remove stale markers
+    for (const [id, m] of markers) {
+      if (!seen.has(id)) {
+        map.removeLayer(m);
         markers.delete(id);
       }
     }
 
-    const dt = Date.now() - started;
-    hud1.textContent = `Vehicles: ${markers.size}`;
-    hud2.textContent = `Updated in ${dt}ms • next in ${Math.round(POLL_MS / 1000)}s`;
+    lastOkAt = Date.now();
+    const took = lastOkAt - started;
+
+    setHud(
+      `${vehicles.length} vehicles`,
+      `updated ${new Date(lastOkAt).toLocaleTimeString()} • ${took}ms • ttl ${ttl}s`,
+    );
+
+    clearTimeout(timer);
+    timer = setTimeout(poll, ttl * 1000);
   } catch (err) {
-    hud1.textContent = "Update failed";
-    hud2.textContent = String(err?.message || err || "unknown error");
-  } finally {
-    inFlight = false;
-    scheduleNextPoll(POLL_MS);
+    const now = Date.now();
+    const last = lastOkAt ? `${fmtAgo(now - lastOkAt)} ago` : "never";
+
+    setHud("API error", `${String(err?.message || err)} • last ok: ${last}`);
+
+    clearTimeout(timer);
+    timer = setTimeout(poll, 10 * 1000);
   }
 }
 
-function makeEmojiMarker(lat, lon, emoji) {
-  const icon = L.divIcon({
-    className: "veh-icon",
-    html: `<span class="veh">${emoji}</span>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
-  });
-
-  return L.marker([lat, lon], { icon });
-}
-
-function applyBearing(entry, bearingDegFromNorth) {
-  if (!Number.isFinite(bearingDegFromNorth)) return;
-
-  const root = entry.marker.getElement && entry.marker.getElement();
-  if (!root) return;
-
-  if (entry.rootEl !== root) {
-    entry.rootEl = root;
-    entry.vehEl = root.querySelector(".veh");
-  }
-  if (!entry.vehEl) return;
-
-  // Emoji faces East by default; GTFS bearing is degrees clockwise from North.
-  let rot = normalizeDegrees(bearingDegFromNorth - 90);
-
-  // Never upside-down: keep rotation within [-90, 90] and mirror for the other half.
-  let flip = 1;
-  if (rot > 90) {
-    rot -= 180;
-    flip = -1;
-  } else if (rot < -90) {
-    rot += 180;
-    flip = -1;
-  }
-
-  entry.vehEl.style.transform = `rotate(${rot}deg) scaleX(${flip})`;
-}
-
-function normalizeDegrees(deg) {
-  let d = deg % 360;
-  if (d >= 180) d -= 360;
-  if (d < -180) d += 360;
-  return d;
-}
-
-// Returns bearing in degrees clockwise from North (0..360)
-function computeBearing(lat1, lon1, lat2, lon2) {
-  const toRad = (x) => (x * Math.PI) / 180;
-  const toDeg = (x) => (x * 180) / Math.PI;
-
-  const φ1 = toRad(lat1);
-  const φ2 = toRad(lat2);
-  const Δλ = toRad(lon2 - lon1);
-
-  const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-
-  const θ = Math.atan2(y, x);
-  return (toDeg(θ) + 360) % 360;
-}
-
-function tryCenterOnGeolocation() {
-  if (!navigator.geolocation) return;
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const lat = pos.coords.latitude;
-      const lon = pos.coords.longitude;
-      if (Number.isFinite(lat) && Number.isFinite(lon)) map.setView([lat, lon], 13);
-    },
-    () => {},
-    { enableHighAccuracy: false, maximumAge: 60000, timeout: 5000 },
-  );
-}
+setHud("Loading…");
+poll();
