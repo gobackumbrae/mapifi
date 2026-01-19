@@ -54,16 +54,16 @@ download_and_validate () {
 }
 
 REPO="$REPO_ANIM"
-PATH="$(pick_png_path "$REPO" || true)"
+PNG_PATH="$(pick_png_path "$REPO" || true)"
 
-if [ -z "${PATH}" ]; then
+if [ -z "${PNG_PATH}" ]; then
   echo "Animated Bus not found; falling back to static Fluent emoji." >&2
   REPO="$REPO_STATIC"
   PATH="$(pick_png_path "$REPO")"
 fi
 
-echo "Using: $REPO / $PATH"
-download_and_validate "$REPO" "$PATH"
+echo "Using: $REPO / $PNG_PATH"
+download_and_validate "$REPO" "$PNG_PATH"
 
 echo "OK saved: $OUT"
 ls -la "$OUT"
