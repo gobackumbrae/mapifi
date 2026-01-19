@@ -1,69 +1,69 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUT_DIR="public/emoji"
-OUT_FILE="${OUT_DIR}/bus.png"
-EMOJI="Bus"
+EMOJI_NAME="Bus"
+OUT="public/emoji/bus.png"
 
-mkdir -p "$OUT_DIR"
+REPO_ANIM="microsoft/fluentui-emoji-animated"
+REPO_STATIC="microsoft/fluentui-emoji"
 
-find_dir() {
+mkdir -p "$(dirname "$OUT")"
+
+pick_png_path () {
   local repo="$1"
-  gh api "repos/${repo}/contents/assets?ref=main" --jq '.[].name' \
-    | grep -i "^${EMOJI}$" \
-    | head -n 1 \
-    || true
-}
+  local base="assets/${EMOJI_NAME}"
 
-pick_style() {
-  local repo="$1"
-  local dir="$2"
-
-  local style=""
-  style="$(gh api "repos/${repo}/contents/assets/${dir}?ref=main" --jq '.[].name' \
-    | grep -i -E '^(3d|color|flat)$' \
-    | head -n 1 \
-    || true)"
-
-  if [ -z "$style" ]; then
-    style="$(gh api "repos/${repo}/contents/assets/${dir}?ref=main" --jq '.[].name' | head -n 1)"
+  # Prefer 3D if present
+  if gh api "repos/${repo}/contents/${base}/3D?ref=main" >/dev/null 2>&1; then
+    gh api "repos/${repo}/contents/${base}/3D?ref=main" \
+      --jq '.[] | select(.name|endswith(".png")) | .path' | head -n 1
+    return 0
   fi
 
-  printf '%s' "$style"
+  # Otherwise pick the first style folder, then first png in it
+  local style
+  style="$(gh api "repos/${repo}/contents/${base}?ref=main" --jq '.[].name' | head -n 1)"
+  gh api "repos/${repo}/contents/${base}/${style}?ref=main" \
+    --jq '.[] | select(.name|endswith(".png")) | .path' | head -n 1
 }
 
-download_first_png() {
+download_and_validate () {
   local repo="$1"
-  local dir="$2"
-  local style="$3"
+  local path="$2"
 
-  local url=""
-  url="$(gh api "repos/${repo}/contents/assets/${dir}/${style}?ref=main" \
-    --jq '.[] | select(.name|endswith(".png")) | .download_url' \
-    | head -n 1)"
+  # Try github.com/raw first (sometimes works for LFS via redirects)
+  local url1="https://github.com/${repo}/raw/main/${path}"
+  curl -L --fail "$url1" -o "$OUT"
 
-  echo "Downloading:"
-  echo "$url"
+  local sig
+  sig="$(head -c 8 "$OUT" | od -An -tx1 | tr -d ' \n')"
+  if [ "$sig" = "89504e470d0a1a0a" ]; then
+    return 0
+  fi
 
-  curl -L "$url" -o "$OUT_FILE"
+  # If not PNG, retry via media.githubusercontent.com (works for LFS binaries)
+  local url2="https://media.githubusercontent.com/media/${repo}/main/${path}"
+  curl -L --fail "$url2" -o "$OUT"
+
+  sig="$(head -c 8 "$OUT" | od -An -tx1 | tr -d ' \n')"
+  if [ "$sig" != "89504e470d0a1a0a" ]; then
+    echo "ERROR: Downloaded file is still not a PNG. First lines are:" >&2
+    head -n 5 "$OUT" || true
+    exit 1
+  fi
 }
 
-REPO="microsoft/fluentui-emoji-animated"
-DIR="$(find_dir "$REPO")"
+REPO="$REPO_ANIM"
+PATH="$(pick_png_path "$REPO" || true)"
 
-if [ -z "$DIR" ]; then
-  echo "Animated '${EMOJI}' not found in ${REPO}; falling back to microsoft/fluentui-emoji" >&2
-  REPO="microsoft/fluentui-emoji"
-  DIR="$(find_dir "$REPO")"
+if [ -z "${PATH}" ]; then
+  echo "Animated Bus not found; falling back to static Fluent emoji." >&2
+  REPO="$REPO_STATIC"
+  PATH="$(pick_png_path "$REPO")"
 fi
 
-if [ -z "$DIR" ]; then
-  echo "Could not find '${EMOJI}' in either Fluent emoji repo." >&2
-  exit 1
-fi
+echo "Using: $REPO / $PATH"
+download_and_validate "$REPO" "$PATH"
 
-STYLE="$(pick_style "$REPO" "$DIR")"
-download_first_png "$REPO" "$DIR" "$STYLE"
-
-echo "Saved:"
-ls -la "$OUT_FILE"
+echo "OK saved: $OUT"
+ls -la "$OUT"

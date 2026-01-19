@@ -48,7 +48,7 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 const vehicleIcon = L.divIcon({
   className: "veh",
-  html: `<div class="veh-wrap"><img class="veh-img" src="${ICON_URL}" alt="vehicle" /></div>`,
+  html: `<div class="veh-wrap"><img class="veh-img" src="${ICON_URL}" alt="" /></div>`,
   iconSize: [ICON_SIZE, ICON_SIZE],
   iconAnchor: [ICON_ANCHOR, ICON_ANCHOR],
 });
