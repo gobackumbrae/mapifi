@@ -20,8 +20,7 @@ REPO_STATIC="microsoft/fluentui-emoji"
 
 mkdir -p "$(dirname "$OUT")"
 
-# Encode just spaces for GitHub API paths and URLs.
-# (Good enough for our emoji names; avoids needing python/jq for full URL encoding.)
+# Minimal encoding for GitHub content paths (good enough for our emoji names)
 enc_spaces() { printf '%s' "${1// /%20}"; }
 
 pick_style_and_png_path () {
@@ -30,12 +29,10 @@ pick_style_and_png_path () {
   local base_api
   base_api="$(enc_spaces "$base")"
 
-  # List style folders under assets/<EMOJI_NAME> (e.g. animated, 3D, Color...)
   local styles
   styles="$(gh api "repos/${repo}/contents/${base_api}?ref=main" --jq '.[].name' 2>/dev/null || true)"
   [ -n "$styles" ] || return 1
 
-  # Prefer animated if it exists, else 3D, else Color, else whatever is first.
   local style=""
   for pref in animated 3D Color Flat "High Contrast"; do
     if printf '%s\n' "$styles" | grep -qx "$pref"; then
@@ -50,7 +47,6 @@ pick_style_and_png_path () {
   local style_api
   style_api="$(enc_spaces "$style")"
 
-  # Pick first PNG inside the chosen style folder
   local p
   p="$(gh api "repos/${repo}/contents/${base_api}/${style_api}?ref=main" \
         --jq '.[] | select(.name|endswith(".png")) | .path' 2>/dev/null | head -n 1 || true)"
@@ -59,26 +55,62 @@ pick_style_and_png_path () {
   printf '%s|%s\n' "$repo" "$p"
 }
 
+is_png () {
+  local f="$1"
+  local sig
+  sig="$(head -c 8 "$f" | od -An -tx1 | tr -d ' \n')"
+  [ "$sig" = "89504e470d0a1a0a" ]
+}
+
+try_download () {
+  local url="$1"
+  local tmp="$2"
+
+  [ -n "$url" ] || return 1
+
+  if curl -L --fail --retry 2 --retry-delay 1 "$url" -o "$tmp" >/dev/null 2>&1; then
+    if is_png "$tmp"; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 download_png_validate () {
   local repo="$1"
   local path="$2"
 
-  # IMPORTANT: use media.githubusercontent.com so we get the *real binary* (not LFS pointer text)
+  local tmp="${OUT}.tmp"
+  rm -f "$tmp"
+
+  # 1) Prefer GitHub API download_url (raw) — works for normal git blobs
+  local path_api
+  path_api="$(enc_spaces "$path")"
+
+  local raw_url
+  raw_url="$(gh api "repos/${repo}/contents/${path_api}?ref=main" --jq '.download_url' 2>/dev/null || true)"
+
+  if try_download "$raw_url" "$tmp"; then
+    mv -f "$tmp" "$OUT"
+    return 0
+  fi
+
+  # 2) Fallback to media.githubusercontent.com — works for LFS/large binaries
   local path_url
   path_url="$(enc_spaces "$path")"
-  local url="https://media.githubusercontent.com/media/${repo}/main/${path_url}"
+  local media_url="https://media.githubusercontent.com/media/${repo}/main/${path_url}"
 
-  curl -L --fail "$url" -o "$OUT"
-
-  # Validate PNG signature
-  local sig
-  sig="$(head -c 8 "$OUT" | od -An -tx1 | tr -d ' \n')"
-  if [ "$sig" != "89504e470d0a1a0a" ]; then
-    echo "ERROR: Downloaded file is not a PNG: $OUT" >&2
-    echo "First lines:" >&2
-    head -n 5 "$OUT" >&2 || true
-    exit 1
+  if try_download "$media_url" "$tmp"; then
+    mv -f "$tmp" "$OUT"
+    return 0
   fi
+
+  rm -f "$tmp" || true
+  echo "ERROR: Could not download a valid PNG for repo=${repo} path=${path}" >&2
+  echo "Tried raw_url:   ${raw_url:-<none>}" >&2
+  echo "Tried media_url: ${media_url}" >&2
+  return 1
 }
 
 combo=""

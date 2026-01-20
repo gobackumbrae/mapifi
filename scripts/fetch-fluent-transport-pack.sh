@@ -6,36 +6,45 @@ FETCH="./scripts/fetch-fluent-emoji.sh"
 OUTDIR="public/emoji"
 mkdir -p "$OUTDIR"
 
-# "All" (transport-focused) pack:
-# Add/remove items freely.
+# Format:
+#   "output.png|Name1|Name2|Name3..."
 items=(
-  "Bus|bus.png"
-  "Tram|tram.png"
-  "Light Rail|light-rail.png"
-  "Train|train.png"
-  "Metro|metro.png"
-  "Subway|subway.png"
-  "Ferry|ferry.png"
-  "Ship|ship.png"
-  "Taxi|taxi.png"
-  "Automobile|car.png"
-  "Bicycle|bicycle.png"
-  "Motorcycle|motorcycle.png"
-  "Airplane|airplane.png"
+  "bus.png|Bus"
+  "tram.png|Tram"
+  "light-rail.png|Light Rail|Light rail|Tram"
+  "train.png|Train|High-Speed Train|Locomotive"
+  "metro.png|Metro"
+  "ferry.png|Ferry"
+  "ship.png|Ship"
+  "taxi.png|Taxi"
+  "car.png|Automobile|Car"
+  "bicycle.png|Bicycle|Bike"
+  "motorcycle.png|Motorcycle"
+  "airplane.png|Airplane"
 )
 
 fails=0
+
 for item in "${items[@]}"; do
-  emoji="${item%%|*}"
-  file="${item#*|}"
+  IFS='|' read -r -a parts <<< "$item"
+  file="${parts[0]}"
   out="${OUTDIR}/${file}"
 
   echo
-  echo "==> ${emoji} -> ${out}"
-  if "$FETCH" "$emoji" "$out"; then
-    :
-  else
-    echo "WARN: failed to fetch '${emoji}'" >&2
+  echo "==> ${file}"
+
+  ok=0
+  for ((i=1; i<${#parts[@]}; i++)); do
+    name="${parts[i]}"
+    echo "    trying: ${name}"
+    if "$FETCH" "$name" "$out"; then
+      ok=1
+      break
+    fi
+  done
+
+  if [ "$ok" -ne 1 ]; then
+    echo "WARN: failed to fetch ${file}" >&2
     fails=$((fails+1))
   fi
 done
