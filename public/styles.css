@@ -65,3 +65,25 @@ html, body {
 
 /* MapIfi perf: marker icons */
 .vehicle-icon { will-change: transform; }
+
+/* Vehicle emoji marker */
+.veh-icon.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.veh-icon .veh-rot {
+  display: block;
+  width: 32px;
+  height: 32px;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.veh-icon .veh-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
