@@ -4,86 +4,65 @@ html, body {
 }
 
 #map {
-  height: 100%;
-  width: 100%;
+  height: 100vh;
+  width: 100vw;
 }
 
 #hud {
-  position: fixed;
+  position: absolute;
   top: 12px;
   left: 12px;
   z-index: 1000;
-  padding: 8px 10px;
-  border-radius: 12px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  font-size: 14px;
-  line-height: 1.25;
-  backdrop-filter: blur(6px);
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  line-height: 1.15;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  max-width: 85vw;
+}
+
+#hud-line-1 {
+  font-weight: 700;
+  font-size: 16px;
 }
 
 #hud-line-2 {
-  opacity: 0.85;
-  font-size: 12px;
-  margin-top: 2px;
+  margin-top: 4px;
+  opacity: 0.9;
+  font-size: 13px;
 }
 
-/* --- Vehicle marker (Fluent animated emoji APNG) --- */
-
-.veh {
-  background: transparent;
-  border: none;
-  --rot: 0deg;
-}
-
-/* IMPORTANT:
-   Leaflet positions the marker element with CSS transforms.
-   Do NOT put transform on .veh itself.
-   Rotate only the inner wrapper.
-*/
-.veh .veh-wrap {
-  width: 36px;
-  height: 36px;
-  transform: rotate(var(--rot));
-  transform-origin: 50% 50%;
-  will-change: transform;
-}
-
-.veh .veh-img {
-  width: 36px;
-  height: 36px;
-  display: block;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));
-  animation: veh-bob 1.2s ease-in-out infinite;
-}
-
-@keyframes veh-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-
-/* MapIfi perf: marker icons */
-.vehicle-icon { will-change: transform; }
-
-/* Vehicle emoji marker */
-.veh-icon.leaflet-div-icon {
+/* Marker rendering */
+.veh-marker {
   background: transparent !important;
   border: none !important;
+  pointer-events: none;
 }
 
-.veh-icon .veh-rot {
-  display: block;
-  width: 32px;
-  height: 32px;
+.veh-icon {
+  width: var(--s);
+  height: var(--s);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));
+}
+
+.veh-rot {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transform-origin: 50% 50%;
-  will-change: transform;
 }
 
-.veh-icon .veh-img {
-  display: block;
+.veh-img {
   width: 100%;
   height: 100%;
   transform-origin: 50% 50%;
-  will-change: transform;
+  user-select: none;
 }
