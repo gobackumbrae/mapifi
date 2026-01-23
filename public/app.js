@@ -1,91 +1,32 @@
 /* public/app.js */
+/* global L */
 
 const API_URL = "/api/vehicles";
-const POLL_MS = 9000;              // Worker TTL is 10s; don't hammer
-const MIN_ZOOM_FOR_MARKERS = 12;   // Hide markers when zoomed out (performance)
-const MAX_MARKERS = 900;           // Safety cap in-view
+const POLL_MS = 10_000;
+
 const ICON_SIZE = 32;
 
-const qs = new URLSearchParams(location.search);
-const animParam = (qs.get("anim") || "").toLowerCase();
-// anim=all -> animate ALL markers (heavy)
-// anim=off -> no animations anywhere
-// default -> animate ONLY selected marker (fast)
-const ANIM_ALL = animParam === "all" || animParam === "1" || animParam === "true";
-const ANIM_OFF = animParam === "off" || animParam === "0" || animParam === "false";
+// We keep animated emoji only for selection to avoid lag
+// "selected" | "all" | "none"
+const ANIM_MODE = "selected";
 
-const prefersReducedMotion =
-  typeof window !== "undefined" &&
-  typeof window.matchMedia === "function" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-const CAN_ANIMATE = !ANIM_OFF && !prefersReducedMotion;
-
+// Where your emoji live
 const ICON_BASE_ANIM = "/emoji";
 const ICON_BASE_STATIC = "/emoji/static";
 
-const hud1 = document.getElementById("hud-line-1");
-const hud2 = document.getElementById("hud-line-2");
+// IMPORTANT:
+// GTFS-RT bearing is degrees clockwise from TRUE NORTH.
+// Fluent vehicle emoji art usually points to the RIGHT (EAST) by default.
+// So we rotate by (bearing - 90) to align.
+const ROTATION_OFFSET_DEG = -90;
 
-function setHud(line1, line2 = "") {
-  if (hud1) hud1.textContent = line1;
-  if (hud2) hud2.textContent = line2;
-}
+// Hard cap to stop the DOM exploding on mobile
+const SAFETY_MAX_MARKERS = 900;
 
-function fmtAge(ms) {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m${String(s % 60).padStart(2, "0")}s`;
-}
-
-const map = L.map("map", {
-  preferCanvas: true,
-  zoomControl: true,
-});
-
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  updateWhenIdle: true,
-  keepBuffer: 2,
-}).addTo(map);
-
-// Default view: Sydney
-map.setView([-33.8688, 151.2093], 12);
-
-// Try to center on user (fast timeout; ignore if denied)
-if (navigator.geolocation) {
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const { latitude, longitude } = pos.coords || {};
-      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-        map.setView([latitude, longitude], 14);
-      }
-    },
-    () => {},
-    { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }
-  );
-}
-
-// Pause DOM churn while user is panning/zooming
-let userInteracting = false;
-map.on("movestart zoomstart", () => {
-  userInteracting = true;
-});
-map.on("moveend zoomend", () => {
-  userInteracting = false;
-  if (lastData) render(lastData);
-});
-
-const iconCache = new Map();
-function iconKey(kind, animated) {
-  return `${kind}|${animated ? "a" : "s"}`;
-}
+const ICON_CACHE = new Map(); // key => L.Icon
 function getIcon(kind, animated) {
-  const key = iconKey(kind, animated);
-  const cached = iconCache.get(key);
+  const key = `${kind}:${animated ? "anim" : "static"}`;
+  const cached = ICON_CACHE.get(key);
   if (cached) return cached;
 
   const base = animated ? ICON_BASE_ANIM : ICON_BASE_STATIC;
@@ -95,142 +36,213 @@ function getIcon(kind, animated) {
     iconAnchor: [ICON_SIZE / 2, ICON_SIZE / 2],
     className: "vehicle-icon",
   });
-  iconCache.set(key, icon);
+
+  ICON_CACHE.set(key, icon);
   return icon;
 }
 
-// TfNSW endpoint here is buses; keep a hook for future
-function kindForVehicle(_v) {
+function normalizeDeg(d) {
+  let x = d % 360;
+  if (x < 0) x += 360;
+  return x;
+}
+
+function rotationFromBearing(bearing) {
+  if (!Number.isFinite(bearing)) return 0;
+  return normalizeDeg(bearing + ROTATION_OFFSET_DEG);
+}
+
+function setMarkerRotation(marker, rotDeg) {
+  // Only works after rotatedMarker plugin is loaded.
+  if (typeof marker.setRotationOrigin === "function") {
+    marker.setRotationOrigin("center center");
+  }
+  if (typeof marker.setRotationAngle === "function") {
+    marker.setRotationAngle(rotDeg);
+  }
+}
+
+function isAnimatedFor(id, selectedId) {
+  if (ANIM_MODE === "all") return true;
+  if (ANIM_MODE === "none") return false;
+  return id === selectedId; // "selected"
+}
+
+function kindForVehicle(v) {
+  // MapIfi currently only has buses from TfNSW vehiclepos/buses
+  // Keep it simple for now.
   return "bus";
 }
 
-const markerMeta = new Map(); // id -> { marker, kind, lastSeen }
+let map;
 let selectedId = null;
-
-function setSelected(id) {
-  selectedId = selectedId === id ? null : id;
-
-  // Update icons for current markers
-  for (const [vid, meta] of markerMeta) {
-    const isSelected = selectedId && vid === selectedId;
-    const animateThis = CAN_ANIMATE && (ANIM_ALL || isSelected);
-    const wanted = getIcon(meta.kind, animateThis);
-    if (meta.marker.options.icon !== wanted) meta.marker.setIcon(wanted);
-  }
-}
-
-async function fetchJson(url) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
-}
-
 let lastData = null;
-let lastOkAt = 0;
-let lastErr = "";
 
-async function loop() {
-  try {
-    const data = await fetchJson(API_URL);
-    lastData = data;
-    lastOkAt = Date.now();
-    lastErr = "";
+// id -> { marker, kind, lastSeen, rot }
+const markerMeta = new Map();
 
-    if (!userInteracting) {
-      render(data);
-    } else {
-      const total = Array.isArray(data?.vehicles) ? data.vehicles.length : 0;
-      setHud(
-        `${total} vehicles (panning…)`,
-        CAN_ANIMATE ? (ANIM_ALL ? "anim=all" : "anim=selected") : "anim=off"
-      );
+function setHud(line1, line2 = "") {
+  const a = document.getElementById("hud-line-1");
+  const b = document.getElementById("hud-line-2");
+  if (a) a.textContent = line1;
+  if (b) b.textContent = line2;
+}
+
+function initMap() {
+  map = L.map("map", {
+    preferCanvas: true,
+    updateWhenIdle: true,
+    keepBuffer: 1,
+  }).setView([-33.8688, 151.2093], 12);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+    updateWhenIdle: true,
+    keepBuffer: 2,
+  }).addTo(map);
+
+  map.on("moveend zoomend", () => {
+    if (lastData?.vehicles) renderVehicles(lastData.vehicles, /*fromMove=*/true);
+  });
+}
+
+async function fetchVehicles() {
+  const res = await fetch(`${API_URL}?t=${Date.now()}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+function pruneStale(nowTs) {
+  // Remove markers not seen for ~3 polls
+  const STALE_MS = POLL_MS * 3 + 2000;
+
+  for (const [id, meta] of markerMeta.entries()) {
+    if (nowTs - meta.lastSeen > STALE_MS) {
+      if (map && map.hasLayer(meta.marker)) map.removeLayer(meta.marker);
+      markerMeta.delete(id);
     }
-  } catch (e) {
-    lastErr = String(e?.message || e || "unknown error");
-    const age = lastOkAt ? `last ok ${fmtAge(Date.now() - lastOkAt)} ago` : "no data yet";
-    setHud(`Error loading vehicles (${age})`, lastErr);
-  } finally {
-    setTimeout(loop, POLL_MS);
   }
 }
 
-function render(data) {
-  const vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
+function onMarkerClick(id) {
+  selectedId = id;
 
-  const zoom = map.getZoom();
-  if (zoom < MIN_ZOOM_FOR_MARKERS) {
-    for (const meta of markerMeta.values()) {
-      if (map.hasLayer(meta.marker)) map.removeLayer(meta.marker);
-    }
-    setHud(
-      `Zoom in to see vehicles (zoom ${zoom}, need ≥ ${MIN_ZOOM_FOR_MARKERS})`,
-      `${vehicles.length} total • ${CAN_ANIMATE ? (ANIM_ALL ? "anim=all" : "anim=selected") : "anim=off"}`
-    );
-    return;
+  // swap icons (animated for selected, static for others)
+  for (const [mid, meta] of markerMeta.entries()) {
+    const wantAnim = isAnimatedFor(mid, selectedId);
+    meta.marker.setIcon(getIcon(meta.kind, wantAnim));
+
+    // ensure rotation survives icon swap
+    setMarkerRotation(meta.marker, meta.rot ?? 0);
   }
 
-  const bounds = map.getBounds().pad(0.15);
-
-  const visible = [];
-  for (const v of vehicles) {
-    const lat = v?.lat;
-    const lon = v?.lon;
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-    if (!bounds.contains([lat, lon])) continue;
-    if (!v?.id) continue;
-    visible.push(v);
-    if (visible.length >= MAX_MARKERS) break;
+  const v = lastData?.vehicles?.find((x) => x.id === id);
+  if (v) {
+    setHud(`Selected: ${id}`, v.route_id ? `Route: ${v.route_id}` : "");
+    map.setView([v.lat, v.lon], Math.max(map.getZoom(), 14), { animate: true });
   }
+}
 
+function renderVehicles(vehicles, fromMove = false) {
   const now = Date.now();
-  const shownIds = new Set();
 
+  // Cull to viewport (expanded a bit)
+  const bounds = map.getBounds().pad(0.25);
+
+  let visible = [];
+  for (const v of vehicles) {
+    if (!Number.isFinite(v.lat) || !Number.isFinite(v.lon)) continue;
+    if (!bounds.contains([v.lat, v.lon])) continue;
+    visible.push(v);
+    if (visible.length >= SAFETY_MAX_MARKERS) break;
+  }
+
+  // If this was triggered just by move/zoom, don't rewrite the HUD noisily
+  if (!fromMove) {
+    setHud(
+      `Vehicles in view: ${visible.length}`,
+      selectedId ? `Selected: ${selectedId}` : ""
+    );
+  }
+
+  const visibleIds = new Set(visible.map((v) => v.id));
+
+  // Remove markers that are no longer visible (but keep in meta so we can re-add quickly)
+  for (const [id, meta] of markerMeta.entries()) {
+    if (!visibleIds.has(id) && map.hasLayer(meta.marker)) {
+      map.removeLayer(meta.marker);
+    }
+  }
+
+  // Upsert visible markers
   for (const v of visible) {
-    const id = String(v.id);
+    const id = v.id;
     const kind = kindForVehicle(v);
-    shownIds.add(id);
-
-    const isSelected = selectedId && id === selectedId;
-    const animateThis = CAN_ANIMATE && (ANIM_ALL || isSelected);
-    const icon = getIcon(kind, animateThis);
+    const wantAnim = isAnimatedFor(id, selectedId);
+    const rot = rotationFromBearing(v.bearing);
 
     let meta = markerMeta.get(id);
     if (!meta) {
-      const m = L.marker([v.lat, v.lon], { icon, keyboard: false });
-      m.on("click", () => setSelected(id));
+      const icon = getIcon(kind, wantAnim);
+
+      const m = L.marker([v.lat, v.lon], {
+        icon,
+        keyboard: false,
+      });
+
+      m.on("click", () => onMarkerClick(id));
       m.addTo(map);
-      meta = { marker: m, kind, lastSeen: now };
+
+      meta = { marker: m, kind, lastSeen: now, rot };
       markerMeta.set(id, meta);
+
+      setMarkerRotation(m, rot);
     } else {
       meta.lastSeen = now;
-      meta.kind = kind;
 
-      if (meta.marker.options.icon !== icon) meta.marker.setIcon(icon);
+      // Update position
+      meta.marker.setLatLng([v.lat, v.lon]);
 
-      const ll = meta.marker.getLatLng();
-      if (Math.abs(ll.lat - v.lat) > 1e-7 || Math.abs(ll.lng - v.lon) > 1e-7) {
-        meta.marker.setLatLng([v.lat, v.lon]);
+      // Update icon if needed
+      if (meta.kind !== kind) {
+        meta.kind = kind;
+        meta.marker.setIcon(getIcon(kind, wantAnim));
+      } else {
+        // Only swap icon if anim mode requires it
+        const currentlyAnimated = isAnimatedFor(id, selectedId);
+        meta.marker.setIcon(getIcon(kind, currentlyAnimated));
       }
-      if (!map.hasLayer(meta.marker)) meta.marker.addTo(map);
+
+      // Update rotation only if it changed
+      if (meta.rot !== rot) {
+        meta.rot = rot;
+        setMarkerRotation(meta.marker, rot);
+      }
     }
   }
 
-  // Hide markers not visible; delete stale markers to avoid memory creep
-  for (const [id, meta] of markerMeta) {
-    if (!shownIds.has(id)) {
-      if (map.hasLayer(meta.marker)) map.removeLayer(meta.marker);
-      if (now - meta.lastSeen > 120000) {
-        markerMeta.delete(id);
-        if (selectedId === id) selectedId = null;
-      }
-    }
-  }
-
-  const age = lastOkAt ? fmtAge(Date.now() - lastOkAt) : "?";
-  const animLabel = CAN_ANIMATE ? (ANIM_ALL ? "anim=all" : "anim=selected") : "anim=off";
-  const note = vehicles.length > visible.length ? `showing ${visible.length} in view` : `showing ${visible.length}`;
-  setHud(`${vehicles.length} vehicles • ${note} • updated ${age} ago`, animLabel);
+  pruneStale(now);
 }
 
-setHud("Loading vehicles…", "");
+async function loop() {
+  while (true) {
+    try {
+      const data = await fetchVehicles();
+      lastData = data;
+
+      if (Array.isArray(data.vehicles)) {
+        renderVehicles(data.vehicles);
+      } else {
+        setHud("No vehicles", "API returned no vehicles array");
+      }
+    } catch (e) {
+      setHud("API error", String(e?.message || e));
+    }
+
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+}
+
+initMap();
 loop();
