@@ -1,11 +1,11 @@
 (() => {
   const API_URL = "/api/vehicles";
 
-  // Fluent animated Bus faces LEFT (West).
+  // Fluent animated Bus faces RIGHT (East).
   // So "0 rotation" points to 270° (West).
   const BUS_ICON = {
     url: "/emoji/bus.png",
-    pointsToDeg: 270,     // <-- IMPORTANT: Fluent Bus points West (left)
+    pointsToDeg: 90,     // <-- IMPORTANT: Fluent Bus points East (right)
     sizePx: 34,
   };
 
