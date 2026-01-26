@@ -1,239 +1,350 @@
+/* global L */
+
 (() => {
-  const API_URL = "/api/vehicles";
-
-  // Fluent animated Bus faces RIGHT (East).
-  // So "0 rotation" points to 270° (West).
-  const BUS_ICON = {
-    url: "/emoji/bus.png",
-    pointsToDeg: 270,     // <-- IMPORTANT: Fluent Bus points East (right)
-    sizePx: 34,
-  };
-
-  // Refresh roughly at TTL cadence (backend ttl=10s)
-  const REFRESH_MS = 10_000;
-
-  // Performance guardrails:
-  // - Only render vehicles inside (viewport bounds padded a bit).
-  // - If still too many, render none and tell you to zoom in (otherwise the browser dies with animated PNGs).
-  const BOUNDS_PAD = 0.10;
-  const MAX_VISIBLE_MARKERS = 250;
-
   const hud1 = document.getElementById("hud-line-1");
   const hud2 = document.getElementById("hud-line-2");
 
-  const map = L.map("map", { zoomControl: true });
-  // Default view: Sydney (fallback)
-  map.setView([-33.8688, 151.2093], 12);
+  const qs = new URLSearchParams(location.search);
+  const SELECTED_FEED = (qs.get("feed") || "all").trim() || "all";
+  const RENDER_MODE = (qs.get("render") || "bounds").trim(); // "bounds" (default) or "all"
+  const RENDER_ALL = RENDER_MODE === "all";
 
-  // Optional: center on device location if available (no UI needed)
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        map.setView([pos.coords.latitude, pos.coords.longitude], 14);
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 5_000 },
-    );
-  }
+  const API_FEEDS = "/api/feeds";
+  const API_VEHICLES = "/api/vehicles";
+
+  const map = L.map("map", {
+    zoomControl: true,
+    preferCanvas: false,
+  });
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "© OpenStreetMap contributors",
   }).addTo(map);
 
-  const markers = new Map();  // id -> Leaflet marker
-  const lastPose = new Map(); // id -> { flip: boolean }
-  const lastPos = new Map();  // id -> { lat, lon }
+  // Default view: Sydney CBD-ish
+  map.setView([-33.8688, 151.2093], 12);
 
-  let lastData = null;
-  let inflight = false;
-
-  function clamp(x, lo, hi) {
-    return Math.min(hi, Math.max(lo, x));
+  // Optional: if user grants location permission, center on them
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords || {};
+        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          map.setView([latitude, longitude], 13);
+        }
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
+    );
   }
 
-  // Normalize degrees into [-180, 180)
+  // Feed metadata (id -> {label, icon, facing})
+  let feedMap = new Map();
+
+  // Cache Leaflet icons by icon URL
+  const iconCache = new Map();
+
+  // id -> { marker, iconUrl, facing, seenAt, onMap }
+  const markers = new Map();
+
+  // last fetched payload, used to re-render instantly on pan/zoom
+  let lastVehicles = [];
+  let lastErrors = [];
+
+  let ttlSeconds = 10;
+  let inFlight = false;
+
+  function setHud(line1, line2) {
+    if (hud1) hud1.textContent = line1 || "";
+    if (hud2) hud2.textContent = line2 || "";
+  }
+
   function normalizeDeg(d) {
-    let x = ((d % 360) + 360) % 360;
-    if (x >= 180) x -= 360;
+    let x = d % 360;
+    if (x < 0) x += 360;
     return x;
   }
 
-  // Compute marker pose:
-  // - Rotate towards bearing
-  // - If that would make it "upside down" (|rot| > 90), flip horizontally and keep rot within [-90,90]
-  // - Uses hysteresis to prevent flip-flopping around the threshold
-  function computePose(bearingDeg, iconPointsToDeg, prevFlip) {
-    let a = normalizeDeg(bearingDeg - iconPointsToDeg); // relative angle
-    let flip = !!prevFlip;
-
-    const FLIP_ON = 100;  // enter flip mode past this
-    const FLIP_OFF = 80;  // exit flip mode inside this
-
-    if (!flip && (a > FLIP_ON || a < -FLIP_ON)) flip = true;
-    else if (flip && (a < FLIP_OFF && a > -FLIP_OFF)) flip = false;
-
-    if (flip) {
-      // bring rotation back toward upright, then mirror the sprite
-      a = a > 0 ? a - 180 : a + 180;
-    }
-
-    // Hard guarantee: never upside down
-    a = clamp(a, -90, 90);
-
-    return { rot: a, flip };
-  }
-
-  // If bearing is missing, estimate from movement (previous position -> current position)
-  function bearingFromDelta(prev, next) {
-    const toRad = (x) => (x * Math.PI) / 180;
-    const toDeg = (x) => (x * 180) / Math.PI;
-
-    const lat1 = toRad(prev.lat);
-    const lat2 = toRad(next.lat);
-    const dLon = toRad(next.lon - prev.lon);
-
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x =
-      Math.cos(lat1) * Math.sin(lat2) -
-      Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-
-    const brng = toDeg(Math.atan2(y, x));
-    return ((brng % 360) + 360) % 360;
-  }
-
-  function makeMarker(lat, lon) {
-    const html = `
-      <div class="veh-icon" style="--s:${BUS_ICON.sizePx}px">
-        <div class="veh-rot">
-          <img class="veh-img" src="${BUS_ICON.url}" alt="" draggable="false" />
-        </div>
-      </div>
-    `.trim();
+  function getIcon(iconUrl) {
+    const key = iconUrl || "/emoji/bus.png";
+    const cached = iconCache.get(key);
+    if (cached) return cached;
 
     const icon = L.divIcon({
-      className: "veh-marker",
-      html,
-      iconSize: [BUS_ICON.sizePx, BUS_ICON.sizePx],
-      iconAnchor: [BUS_ICON.sizePx / 2, BUS_ICON.sizePx / 2],
+      className: "veh",
+      html: `<img class="veh-icon" src="${key}" alt="" decoding="async" loading="lazy" />`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
     });
 
-    return L.marker([lat, lon], {
-      icon,
-      interactive: false,
-      keyboard: false,
-    }).addTo(map);
+    iconCache.set(key, icon);
+    return icon;
   }
 
-  function applyPose(marker, pose) {
+  // Fluent transport emojis are generally drawn facing LEFT.
+  // GTFS-RT bearing is degrees clockwise from NORTH.
+  // We convert bearing->CSS rotation for a left-facing base icon:
+  //   theta = bearing + 90  (so bearing=270 (west) => theta=0)
+  // Then enforce "never upside down" by flipping when theta would exceed 90°.
+  function applyHeading(marker, bearing, facing = "left") {
     const el = marker.getElement();
     if (!el) return;
+    const img = el.querySelector("img");
+    if (!img) return;
 
-    const rotEl = el.querySelector(".veh-rot");
-    const imgEl = el.querySelector(".veh-img");
-    if (!rotEl || !imgEl) return;
+    img.style.transformOrigin = "50% 50%";
+    img.style.willChange = "transform";
+    img.style.userSelect = "none";
+    img.style.pointerEvents = "none";
+    img.style.display = "block";
+    img.style.width = "32px";
+    img.style.height = "32px";
 
-    // Force override so no other CSS/Leaflet transform junk can beat us.
-    rotEl.style.setProperty("transform", `rotate(${pose.rot}deg)`, "important");
-    imgEl.style.setProperty("transform", pose.flip ? "scaleX(-1)" : "scaleX(1)", "important");
-  }
-
-  function fmtAge(ms) {
-    const s = Math.max(0, Math.round(ms / 1000));
-    if (s < 60) return `${s}s ago`;
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}m${r}s ago`;
-  }
-
-  function render(data) {
-    if (!data || !Array.isArray(data.vehicles)) return;
-
-    const bounds = map.getBounds().pad(BOUNDS_PAD);
-    const visible = data.vehicles.filter((v) => {
-      if (!Number.isFinite(v.lat) || !Number.isFinite(v.lon)) return false;
-      return bounds.contains([v.lat, v.lon]);
-    });
-
-    if (visible.length > MAX_VISIBLE_MARKERS) {
-      hud1.textContent = `${visible.length.toLocaleString()} vehicles (zoom in)`;
-      hud2.textContent = `too many to render with animated markers • updated ${fmtAge(Date.now() - data.generated_at)} • ttl ${data.ttl}s`;
-
-      // Drop markers to keep interaction fast
-      for (const [, m] of markers) map.removeLayer(m);
-      markers.clear();
-      lastPose.clear();
+    const b = Number(bearing);
+    if (!Number.isFinite(b)) {
+      img.style.transform = "";
       return;
     }
 
-    hud1.textContent = `${visible.length.toLocaleString()} vehicles`;
-    hud2.textContent = `updated ${fmtAge(Date.now() - data.generated_at)} • ttl ${data.ttl}s`;
-
-    const seen = new Set();
-
-    for (const v of visible) {
-      const id = String(v.id);
-      seen.add(id);
-
-      let m = markers.get(id);
-      if (!m) {
-        m = makeMarker(v.lat, v.lon);
-        markers.set(id, m);
-      } else {
-        m.setLatLng([v.lat, v.lon]);
-      }
-
-      // Pick bearing: feed bearing first, else infer from motion
-      let b = Number(v.bearing);
-      if (!Number.isFinite(b)) {
-        const prev = lastPos.get(id);
-        if (prev) b = bearingFromDelta(prev, v);
-      }
-      if (!Number.isFinite(b)) b = 0;
-      b = ((b % 360) + 360) % 360;
-
-      lastPos.set(id, { lat: v.lat, lon: v.lon });
-
-      const prevPose = lastPose.get(id);
-      const pose = computePose(b, BUS_ICON.pointsToDeg, prevPose?.flip);
-      lastPose.set(id, pose);
-
-      applyPose(m, pose);
+    let theta;
+    switch ((facing || "left").toLowerCase()) {
+      case "right":
+        theta = normalizeDeg(b - 90);
+        break;
+      case "up":
+        theta = normalizeDeg(b);
+        break;
+      case "down":
+        theta = normalizeDeg(b + 180);
+        break;
+      case "left":
+      default:
+        theta = normalizeDeg(b + 90);
+        break;
     }
 
-    // Remove markers no longer in view (or disappeared)
-    for (const [id, m] of markers) {
-      if (!seen.has(id)) {
-        map.removeLayer(m);
-        markers.delete(id);
-        lastPose.delete(id);
-      }
+    // Never upside down: keep rotation within [-90, 90] by flipping horizontally
+    let rot = theta;
+    let flip = false;
+    if (rot > 90 && rot < 270) {
+      rot = rot - 180;
+      flip = true;
     }
+
+    img.style.transform = `rotate(${rot}deg)${flip ? " scaleX(-1)" : ""}`;
   }
 
-  async function tick() {
-    if (inflight) return;
-    inflight = true;
+  function fmtTime(ms) {
+    const d = new Date(ms);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  async function loadFeeds() {
     try {
-      // cache-bust so you always get fresh JSON
-      const res = await fetch(`${API_URL}?v=${Date.now()}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`API ${res.status}`);
+      const res = await fetch(API_FEEDS, { cache: "no-store" });
       const data = await res.json();
-      lastData = data;
-      render(data);
-    } catch (e) {
-      hud1.textContent = "Error";
-      hud2.textContent = String(e?.message || e || "unknown error");
-      console.error(e);
-    } finally {
-      inflight = false;
+      if (data && data.ok && Array.isArray(data.feeds)) {
+        feedMap = new Map(
+          data.feeds
+            .filter((f) => f && f.id)
+            .map((f) => [
+              String(f.id),
+              {
+                id: String(f.id),
+                label: String(f.label || f.id),
+                icon: String(f.icon || ""),
+                facing: String(f.facing || "left"),
+              },
+            ]),
+        );
+      }
+    } catch {
+      // ignore; we can still render with defaults
     }
   }
 
-  map.on("moveend zoomend", () => {
-    if (lastData) render(lastData);
-  });
+  function withinRenderBounds(lat, lon) {
+    if (RENDER_ALL) return true;
+    const b = map.getBounds().pad(0.2);
+    return b.contains([lat, lon]);
+  }
 
-  tick();
-  setInterval(tick, REFRESH_MS);
+  function updateMarkers(vehicles) {
+    const now = Date.now();
+    const ttlMs = Math.max(5, ttlSeconds) * 1000;
+    const dropAfter = Math.max(3 * ttlMs, 30000);
+
+    // Markers we saw this tick (for cleanup hints)
+    const seenNow = new Set();
+
+    for (const v of vehicles) {
+      if (!v) continue;
+      const id = String(v.id || "");
+      if (!id) continue;
+      if (!Number.isFinite(v.lat) || !Number.isFinite(v.lon)) continue;
+
+      const lat = v.lat;
+      const lon = v.lon;
+
+      // Bounds-based rendering to avoid 2000+ animated DOM nodes melting the phone
+      const render = withinRenderBounds(lat, lon);
+
+      seenNow.add(id);
+
+      const feedId = String(v.feed || "");
+      const feed = feedMap.get(feedId);
+
+      const iconUrl = (feed && feed.icon) ? feed.icon : "/emoji/bus.png";
+      const facing = (feed && feed.facing) ? feed.facing : "left";
+
+      let entry = markers.get(id);
+      if (!entry) {
+        const marker = L.marker([lat, lon], {
+          icon: getIcon(iconUrl),
+          interactive: false,
+          keyboard: false,
+        });
+
+        entry = {
+          marker,
+          iconUrl,
+          facing,
+          seenAt: now,
+          onMap: false,
+        };
+        markers.set(id, entry);
+      }
+
+      entry.seenAt = now;
+
+      // Update position always (even if not rendering), so if user pans we can re-add immediately
+      entry.marker.setLatLng([lat, lon]);
+
+      if (entry.iconUrl !== iconUrl) {
+        entry.iconUrl = iconUrl;
+        entry.marker.setIcon(getIcon(iconUrl));
+      }
+      entry.facing = facing;
+
+      // Add/remove from map based on render bounds
+      if (render) {
+        if (!entry.onMap) {
+          entry.marker.addTo(map);
+          entry.onMap = true;
+        }
+        applyHeading(entry.marker, v.bearing, facing);
+      } else {
+        if (entry.onMap) {
+          map.removeLayer(entry.marker);
+          entry.onMap = false;
+        }
+      }
+    }
+
+    // Cleanup stale markers
+    for (const [id, entry] of markers) {
+      if (now - entry.seenAt > dropAfter && !seenNow.has(id)) {
+        if (entry.onMap) map.removeLayer(entry.marker);
+        markers.delete(id);
+      }
+    }
+  }
+
+  function updateHud(data) {
+    const vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
+    const errors = Array.isArray(data?.errors) ? data.errors : [];
+
+    // counts per feed (even if we render only bounds)
+    const counts = new Map();
+    for (const v of vehicles) {
+      const f = String(v?.feed || "unknown");
+      counts.set(f, (counts.get(f) || 0) + 1);
+    }
+
+    const total = vehicles.length;
+    const updatedAt = Number(data?.generated_at) || Date.now();
+
+    const feedLabel =
+      SELECTED_FEED === "all"
+        ? "all feeds"
+        : (feedMap.get(SELECTED_FEED)?.label || SELECTED_FEED);
+
+    const modeLabel = RENDER_ALL ? "render=all" : "render=bounds";
+
+    let line1 = `${total} vehicles`;
+    let line2 = `${feedLabel} · ${modeLabel} · updated ${fmtTime(updatedAt)} · ttl ${ttlSeconds}s`;
+
+    if (errors.length) {
+      const short = errors
+        .slice(0, 3)
+        .map((e) => `${e.feed}:${String(e.error).replace(/^Upstream\s+/, "")}`)
+        .join(", ");
+      line2 += ` · errors: ${short}${errors.length > 3 ? "…" : ""}`;
+    }
+
+    // Optional: tiny per-feed summary if you're on all feeds
+    if (SELECTED_FEED === "all" && counts.size) {
+      const bits = [];
+      for (const [fid, n] of counts) {
+        const lbl = feedMap.get(fid)?.label || fid;
+        bits.push(`${lbl}:${n}`);
+      }
+      // Keep it short-ish
+      line1 = `${total} vehicles (${bits.slice(0, 4).join(" · ")}${bits.length > 4 ? " · …" : ""})`;
+    }
+
+    setHud(line1, line2);
+  }
+
+  async function fetchVehiclesOnce() {
+    if (inFlight) return;
+    inFlight = true;
+
+    try {
+      const feedQ = SELECTED_FEED === "all" ? "all" : SELECTED_FEED;
+      const url = `${API_VEHICLES}?feed=${encodeURIComponent(feedQ)}`;
+
+      const res = await fetch(url, { cache: "no-store" });
+      const data = await res.json();
+
+      ttlSeconds = Number(data?.ttl) || ttlSeconds;
+
+      lastVehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
+      lastErrors = Array.isArray(data?.errors) ? data.errors : [];
+
+      updateMarkers(lastVehicles);
+      updateHud(data);
+    } catch (err) {
+      setHud("Error", String(err?.message || err || "fetch failed"));
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  // Re-render immediately on pan/zoom using lastVehicles (no network)
+  function rerender() {
+    if (!lastVehicles || !lastVehicles.length) return;
+    updateMarkers(lastVehicles);
+    // Keep HUD stable
+    setHud(
+      `${lastVehicles.length} vehicles`,
+      `${SELECTED_FEED === "all" ? "all feeds" : SELECTED_FEED} · ${RENDER_ALL ? "render=all" : "render=bounds"} · ttl ${ttlSeconds}s`,
+    );
+  }
+
+  map.on("moveend zoomend", () => rerender());
+
+  async function loop() {
+    await fetchVehiclesOnce();
+    const waitMs = Math.max(5, ttlSeconds) * 1000;
+    setTimeout(loop, waitMs);
+  }
+
+  (async () => {
+    setHud("Loading…", "");
+    await loadFeeds();
+    await fetchVehiclesOnce();
+    loop();
+  })();
 })();

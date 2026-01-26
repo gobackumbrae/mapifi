@@ -3,10 +3,15 @@
 const DECODER = new TextDecoder("utf-8");
 const API_TTL_SECONDS = 10;
 
+// Safety guards
+const MAX_FEEDS = 20;
+const MAX_VEHICLES = 50000;
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // CORS preflight for API
     if (url.pathname.startsWith("/api/") && request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -26,6 +31,30 @@ export default {
       });
     }
 
+    if (url.pathname === "/api/feeds") {
+      try {
+        const feeds = getFeedList(env).map((f) => ({
+          id: f.id,
+          label: f.label,
+          icon: f.icon || "",
+          facing: f.facing || "left",
+          url: f.url, // not secret; useful for debugging
+        }));
+
+        return json(
+          { ok: true, feeds, ttl: API_TTL_SECONDS },
+          200,
+          { "cache-control": "no-store", "access-control-allow-origin": "*" },
+        );
+      } catch (err) {
+        return json(
+          { ok: false, error: String(err?.message || err || "unknown error") },
+          500,
+          { "cache-control": "no-store", "access-control-allow-origin": "*" },
+        );
+      }
+    }
+
     if (url.pathname === "/api/vehicles") {
       if (request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method Not Allowed", {
@@ -34,9 +63,14 @@ export default {
         });
       }
 
-      const cacheKey = new Request(`${url.origin}/api/vehicles`, { method: "GET" });
-      const cache = caches.default;
+      const feed = (url.searchParams.get("feed") || "all").trim() || "all";
 
+      // Cache varies by feed selection
+      const cacheKeyUrl = new URL(`${url.origin}/api/vehicles`);
+      cacheKeyUrl.searchParams.set("feed", feed);
+      const cacheKey = new Request(cacheKeyUrl.toString(), { method: "GET" });
+
+      const cache = caches.default;
       const cached = await cache.match(cacheKey);
       if (cached) {
         if (request.method === "HEAD") return headFrom(cached);
@@ -44,12 +78,18 @@ export default {
       }
 
       try {
-        const vehicles = await fetchAndParseVehicles(env);
+        const { vehicles, errors, feedsUsed } = await fetchAndParseVehiclesMulti(env, feed);
+
+        // Hard cap so we never accidentally explode response size
+        const clipped = vehicles.length > MAX_VEHICLES ? vehicles.slice(0, MAX_VEHICLES) : vehicles;
 
         const body = JSON.stringify({
           generated_at: Date.now(),
           ttl: API_TTL_SECONDS,
-          vehicles,
+          feed,
+          feeds: feedsUsed,
+          errors,
+          vehicles: clipped,
         });
 
         const resp = new Response(body, {
@@ -104,8 +144,116 @@ function json(obj, status = 200, extraHeaders = {}) {
   });
 }
 
-async function fetchAndParseVehicles(env) {
-  const upstream = buildUpstreamRequest(env);
+function getFeedList(env) {
+  const raw = (env.GTFS_RT_FEEDS || "").trim();
+
+  // Back-compat: single feed via GTFS_RT_URL
+  if (!raw) {
+    const url = (env.GTFS_RT_URL || "").trim();
+    if (!url) throw new Error("GTFS_RT_URL is not set and GTFS_RT_FEEDS is empty");
+    return [
+      {
+        id: "default",
+        label: "Default",
+        url,
+        icon: "/emoji/bus.png",
+        facing: "left",
+      },
+    ];
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("GTFS_RT_FEEDS must be valid JSON (array of {id,label,url,icon,facing})");
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("GTFS_RT_FEEDS must be a JSON array");
+  }
+
+  const out = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") continue;
+    const id = String(item.id || "").trim();
+    const url = String(item.url || "").trim();
+    if (!id || !url) continue;
+
+    const label = String(item.label || id).trim();
+    const icon = String(item.icon || "").trim();
+    const facing = String(item.facing || "left").trim();
+
+    out.push({
+      id: id.replace(/[^a-zA-Z0-9_-]/g, ""),
+      label,
+      url,
+      icon,
+      facing,
+      auth_header: typeof item.auth_header === "string" ? item.auth_header : undefined,
+      auth_query: typeof item.auth_query === "string" ? item.auth_query : undefined,
+    });
+  }
+
+  if (out.length === 0) {
+    throw new Error("GTFS_RT_FEEDS parsed but contained no valid {id,url} entries");
+  }
+
+  return out.slice(0, MAX_FEEDS);
+}
+
+async function fetchAndParseVehiclesMulti(env, requestedFeed) {
+  const feeds = getFeedList(env);
+
+  let selected = feeds;
+  if (requestedFeed !== "all") {
+    selected = feeds.filter((f) => f.id === requestedFeed);
+    if (selected.length === 0) {
+      const known = feeds.map((f) => f.id).join(", ");
+      throw new Error(`Unknown feed '${requestedFeed}'. Known: ${known}`);
+    }
+  }
+
+  const settled = await Promise.allSettled(
+    selected.map((f) => fetchAndParseVehiclesFromFeed(env, f)),
+  );
+
+  const vehicles = [];
+  const errors = [];
+
+  for (let i = 0; i < settled.length; i++) {
+    const f = selected[i];
+    const r = settled[i];
+
+    if (r.status === "fulfilled") {
+      for (const v of r.value) {
+        vehicles.push({
+          ...v,
+          id: `${f.id}:${v.id}`, // prevent cross-feed collisions
+          feed: f.id,
+        });
+      }
+    } else {
+      errors.push({
+        feed: f.id,
+        error: String(r.reason?.message || r.reason || "unknown error"),
+      });
+    }
+  }
+
+  // Useful metadata for UI (icons, labels, facing)
+  const feedsUsed = selected.map((f) => ({
+    id: f.id,
+    label: f.label,
+    icon: f.icon || "",
+    facing: f.facing || "left",
+  }));
+
+  return { vehicles, errors, feedsUsed };
+}
+
+async function fetchAndParseVehiclesFromFeed(env, feed) {
+  const upstream = buildUpstreamRequest(env, feed);
 
   const res = await fetch(upstream.url, {
     method: "GET",
@@ -113,14 +261,14 @@ async function fetchAndParseVehicles(env) {
     cf: { cacheEverything: true, cacheTtl: API_TTL_SECONDS },
   });
 
-  if (!res.ok) throw new Error(`Upstream error ${res.status}`);
+  if (!res.ok) throw new Error(`Upstream ${feed.id} error ${res.status}`);
 
   const buf = await res.arrayBuffer();
   return parseGtfsRtVehiclePositions(buf);
 }
 
-function buildUpstreamRequest(env) {
-  let url = env.GTFS_RT_URL;
+function buildUpstreamRequest(env, feed) {
+  let url = (feed?.url || env.GTFS_RT_URL || "").trim();
   if (!url) throw new Error("GTFS_RT_URL is not set");
 
   const apiKey = (env.GTFS_API_KEY || "").trim();
@@ -136,7 +284,7 @@ function buildUpstreamRequest(env) {
     };
   }
 
-  const qpName = (env.GTFS_RT_AUTH_QUERY || "").trim();
+  const qpName = ((feed?.auth_query ?? env.GTFS_RT_AUTH_QUERY) || "").trim();
   if (qpName && apiKey) {
     const u = new URL(url);
     u.searchParams.set(qpName, apiKey);
@@ -148,10 +296,12 @@ function buildUpstreamRequest(env) {
     };
   }
 
-  const headerName = (env.GTFS_RT_AUTH_HEADER || "").trim();
+  const headerName = ((feed?.auth_header ?? env.GTFS_RT_AUTH_HEADER) || "").trim();
   const headers = {
     accept: "application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
   };
+
+  // TfNSW expects: Authorization: apikey <KEY>
   if (headerName && apiKey) {
     const hn = headerName.toLowerCase();
     const low = apiKey.toLowerCase();
