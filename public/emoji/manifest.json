@@ -1,0 +1,14 @@
+{
+  "airplane": {"src":"/emoji/airplane.png","pointsToDeg":90},
+  "bicycle": {"src":"/emoji/bicycle.png","pointsToDeg":90},
+  "bus": {"src":"/emoji/bus.png","pointsToDeg":90},
+  "car": {"src":"/emoji/car.png","pointsToDeg":90},
+  "ferry": {"src":"/emoji/ferry.png","pointsToDeg":90},
+  "light-rail": {"src":"/emoji/light-rail.png","pointsToDeg":90},
+  "metro": {"src":"/emoji/metro.png","pointsToDeg":90},
+  "motorcycle": {"src":"/emoji/motorcycle.png","pointsToDeg":90},
+  "ship": {"src":"/emoji/ship.png","pointsToDeg":90},
+  "taxi": {"src":"/emoji/taxi.png","pointsToDeg":90},
+  "train": {"src":"/emoji/train.png","pointsToDeg":90},
+  "tram": {"src":"/emoji/tram.png","pointsToDeg":90}
+}
