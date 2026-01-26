@@ -5,7 +5,7 @@
   // So "0 rotation" points to 270° (West).
   const BUS_ICON = {
     url: "/emoji/bus.png",
-    pointsToDeg: 90,     // <-- IMPORTANT: Fluent Bus points East (right)
+    pointsToDeg: 270,     // <-- IMPORTANT: Fluent Bus points East (right)
     sizePx: 34,
   };
 
@@ -15,8 +15,8 @@
   // Performance guardrails:
   // - Only render vehicles inside (viewport bounds padded a bit).
   // - If still too many, render none and tell you to zoom in (otherwise the browser dies with animated PNGs).
-  const BOUNDS_PAD = 0.20;
-  const MAX_VISIBLE_MARKERS = 900;
+  const BOUNDS_PAD = 0.10;
+  const MAX_VISIBLE_MARKERS = 250;
 
   const hud1 = document.getElementById("hud-line-1");
   const hud2 = document.getElementById("hud-line-2");
