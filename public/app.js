@@ -8,6 +8,8 @@
   const SELECTED_FEED = (qs.get("feed") || "all").trim() || "all";
   const RENDER_MODE = (qs.get("render") || "bounds").trim(); // "bounds" (default) or "all"
   const RENDER_ALL = RENDER_MODE === "all";
+  const MAX_ON_MAP = Math.max(50, Math.min(2000, Number(qs.get("max") || 350)));
+
 
   const API_FEEDS = "/api/feeds";
   const API_VEHICLES = "/api/vehicles";
@@ -87,7 +89,7 @@
   // We convert bearing->CSS rotation for a left-facing base icon:
   //   theta = bearing + 90  (so bearing=270 (west) => theta=0)
   // Then enforce "never upside down" by flipping when theta would exceed 90°.
-  function applyHeading(marker, bearing, facing = "left") {
+  function applyHeading(marker, bearing, facing = "right") {
     const el = marker.getElement();
     if (!el) return;
     const img = el.querySelector("img");
@@ -108,7 +110,7 @@
     }
 
     let theta;
-    switch ((facing || "left").toLowerCase()) {
+    switch ((facing || "right").toLowerCase()) {
       case "right":
         theta = normalizeDeg(b - 90);
         break;
@@ -177,6 +179,8 @@
 
     // Markers we saw this tick (for cleanup hints)
     const seenNow = new Set();
+    let rendered = 0;
+
 
     for (const v of vehicles) {
       if (!v) continue;
@@ -188,7 +192,9 @@
       const lon = v.lon;
 
       // Bounds-based rendering to avoid 2000+ animated DOM nodes melting the phone
-      const render = withinRenderBounds(lat, lon);
+      let render = withinRenderBounds(lat, lon);
+      if (render && rendered >= MAX_ON_MAP) render = false;
+      if (render) rendered++;
 
       seenNow.add(id);
 
@@ -196,7 +202,7 @@
       const feed = feedMap.get(feedId);
 
       const iconUrl = (feed && feed.icon) ? feed.icon : "/emoji/bus.png";
-      const facing = (feed && feed.facing) ? feed.facing : "left";
+      const facing = (feed (feed && feed.facing) ? feed.facing : "left"(feed && feed.facing) ? feed.facing : "left" feed.facing) ? feed.facing : "right";
 
       let entry = markers.get(id);
       if (!entry) {
