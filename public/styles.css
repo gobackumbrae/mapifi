@@ -66,3 +66,16 @@ html, body {
   transform-origin: 50% 50%;
   user-select: none;
 }
+
+/* HARD FIX: Fluent emoji PNGs are large; prevent overflow + force 32px sizing */
+.leaflet-marker-icon.veh {
+  overflow: hidden !important;
+}
+
+.leaflet-marker-icon.veh img.veh-icon {
+  width: 32px !important;
+  height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  display: block !important;
+}
