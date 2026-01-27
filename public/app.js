@@ -10,7 +10,6 @@
   const RENDER_ALL = RENDER_MODE === "all";
   const MAX_ON_MAP = Math.max(50, Math.min(2000, Number(qs.get("max") || 350)));
 
-
   const API_FEEDS = "/api/feeds";
   const API_VEHICLES = "/api/vehicles";
 
@@ -156,7 +155,7 @@
                 id: String(f.id),
                 label: String(f.label || f.id),
                 icon: String(f.icon || ""),
-                facing: String(f.facing || "left"),
+                facing: String(f.facing || "right"),
               },
             ]),
         );
@@ -181,7 +180,6 @@
     const seenNow = new Set();
     let rendered = 0;
 
-
     for (const v of vehicles) {
       if (!v) continue;
       const id = String(v.id || "");
@@ -192,9 +190,7 @@
       const lon = v.lon;
 
       // Bounds-based rendering to avoid 2000+ animated DOM nodes melting the phone
-      let render = withinRenderBounds(lat, lon);
-      if (render && rendered >= MAX_ON_MAP) render = false;
-      if (render) rendered++;
+      const render = withinRenderBounds(lat, lon) && (rendered++ < MAX_ON_MAP);
 
       seenNow.add(id);
 
@@ -202,7 +198,7 @@
       const feed = feedMap.get(feedId);
 
       const iconUrl = (feed && feed.icon) ? feed.icon : "/emoji/bus.png";
-      const facing = (feed (feed && feed.facing) ? feed.facing : "left"(feed && feed.facing) ? feed.facing : "left" feed.facing) ? feed.facing : "right";
+      const facing = (feed const facing = (feed && feed.facing) ? feed.facing : "left";const facing = (feed && feed.facing) ? feed.facing : "left"; feed.facing) ? feed.facing : "right";
 
       let entry = markers.get(id);
       if (!entry) {
@@ -315,6 +311,22 @@
       const data = await res.json();
 
       ttlSeconds = Number(data?.ttl) || ttlSeconds;
+      // mapifi-feedmeta: derive icons/labels from /api/vehicles response
+      if (data && Array.isArray(data.feeds)) {
+        feedMap = new Map(
+          data.feeds
+            .filter((f) => f && f.id)
+            .map((f) => [
+              String(f.id),
+              {
+                id: String(f.id),
+                label: String(f.label || f.id),
+                icon: String(f.icon || ""),
+                facing: String(f.facing || "right"),
+              },
+            ]),
+        );
+      }
 
       lastVehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
       lastErrors = Array.isArray(data?.errors) ? data.errors : [];
