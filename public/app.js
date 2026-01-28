@@ -155,8 +155,8 @@
       const fid = String(v.feed || "default");
       const meta = feedMeta.get(fid) || null;
 
-      const iconUrl = meta && meta.icon ? meta.icon : "/emoji/bus.png";
-      const facing = meta && meta.facing ? meta.facing : "right";
+      const iconUrl = ((v && typeof v.icon === "string" ? v.icon.trim() : "") || (feed && feed.icon) || "/emoji/bus.png");
+      const facing = ((v && typeof v.facing === "string" ? v.facing.trim() : "") || (feed && feed.facing) || "left");
 
       let entry = markers.get(id);
       if (!entry) {

@@ -231,11 +231,23 @@ async function fetchAndParseVehiclesMulti(env, requestedFeed) {
           ...v,
           id: `${f.id}:${v.id}`, // prevent cross-feed collisions
           feed: f.id,
+          icon: f.icon || "",
+          facing: f.facing || "left",
+          label: f.label || f.id,
+          icon: f.icon || "",
+          facing: f.facing || "left",
+          label: f.label || f.id,
         });
       }
     } else {
       errors.push({
         feed: f.id,
+          icon: f.icon || "",
+          facing: f.facing || "left",
+          label: f.label || f.id,
+          icon: f.icon || "",
+          facing: f.facing || "left",
+          label: f.label || f.id,
         error: String(r.reason?.message || r.reason || "unknown error"),
       });
     }
