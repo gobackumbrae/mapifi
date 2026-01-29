@@ -79,3 +79,32 @@ html, body {
   max-height: 32px !important;
   display: block !important;
 }
+
+/* Vehicle info pill (tap near a vehicle icon) */
+.leaflet-popup.veh-pill-popup .leaflet-popup-content-wrapper {
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  border-radius: 999px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+}
+
+.leaflet-popup.veh-pill-popup .leaflet-popup-content {
+  margin: 6px 10px;
+  font-size: 12px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.leaflet-popup.veh-pill-popup .leaflet-popup-tip {
+  display: none;
+}
+
+.veh-pill-main {
+  font-weight: 600;
+}
+
+.veh-pill-sub {
+  margin-top: 2px;
+  opacity: 0.85;
+  font-size: 11px;
+}

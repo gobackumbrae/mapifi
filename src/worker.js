@@ -418,6 +418,7 @@ function parseFeedEntity(bytes, dv, start, end) {
     bearing: Number.isFinite(bearing) ? bearing : null,
     timestamp: vehicle.timestamp ?? null,
     route_id: vehicle.routeId || null,
+    trip_id: vehicle.tripId || null,
   };
 }
 

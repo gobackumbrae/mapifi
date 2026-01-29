@@ -43,6 +43,15 @@
 
   map.setView([-33.8688, 151.2093], 12);
 
+  // Tap near a vehicle to see a small pill with route/trip/id
+  const pillPopup = L.popup({
+    closeButton: false,
+    autoClose: true,
+    closeOnClick: true,
+    className: "veh-pill-popup",
+    offset: [0, -14],
+  });
+
   // Optional: center on user
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
@@ -51,6 +60,15 @@
         const lat = c ? Number(c.latitude) : NaN;
         const lon = c ? Number(c.longitude) : NaN;
         if (Number.isFinite(lat) && Number.isFinite(lon)) map.setView([lat, lon], 13);
+
+  // Tap near a vehicle to see a small pill with route/trip/id
+  const pillPopup = L.popup({
+    closeButton: false,
+    autoClose: true,
+    closeOnClick: true,
+    className: "veh-pill-popup",
+    offset: [0, -14],
+  });
       },
       () => {},
       { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
@@ -178,6 +196,13 @@
       }
       entry.facing = facing;
 
+      entry.meta = {
+        id: id,
+        label: (v && typeof v.label === "string" ? v.label : ((feed && feed.label) ? feed.label : (feedId || ""))),
+        route_id: (v && v.route_id != null ? String(v.route_id) : ""),
+        trip_id: (v && v.trip_id != null ? String(v.trip_id) : ""),
+      };
+
       const inBounds = withinRenderBounds(lat, lon);
       const shouldRender = inBounds && (rendered < MAX_ON_MAP);
       if (shouldRender) rendered++;
@@ -301,6 +326,65 @@
     if (!lastVehicles.length) return;
     updateMarkers(lastVehicles);
   }
+
+  function escHtml(s) {
+    return String(s || "").replace(/[&<>"\x27]/g, (c) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\x22": "&quot;",
+      "\x27": "&#39;",
+    }[c] || c));
+  }
+
+  function vehPillHtml(meta) {
+    if (!meta) return "";
+    const label = escHtml(meta.label || "Vehicle");
+    const route = escHtml(meta.route_id || "");
+    const trip  = escHtml(meta.trip_id || "");
+    const vid   = escHtml(meta.id || "");
+
+    // “Pattern information” preference order: route_id, then trip_id, then vehicle id
+    let main = label;
+    if (route) main += ` · ${route}`;
+    else if (trip) main += ` · ${trip}`;
+    else if (vid) main += ` · ${vid}`;
+
+    // Optional second line if we have BOTH
+    let sub = "";
+    if (route && trip) sub = `trip ${trip}`;
+
+    return `<div class="veh-pill"><div class="veh-pill-main">${main}</div>${sub ? `<div class="veh-pill-sub">${escHtml(sub)}</div>` : ""}</div>`;
+  }
+
+  function nearestRenderedEntry(latlng) {
+    const clickPt = map.latLngToLayerPoint(latlng);
+    let best = null;
+    let bestD2 = Infinity;
+
+    for (const entry of markers.values()) {
+      if (!entry || !entry.onMap) continue; // only consider rendered markers (bounds mode)
+      const pt = map.latLngToLayerPoint(entry.marker.getLatLng());
+      const dx = pt.x - clickPt.x;
+      const dy = pt.y - clickPt.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = entry;
+      }
+    }
+
+    const MAX_PX = 28; // tap radius
+    return best && bestD2 <= (MAX_PX * MAX_PX) ? best : null;
+  }
+
+  map.on("click", (e) => {
+    const entry = nearestRenderedEntry(e.latlng);
+    if (!entry) return;
+    const html = vehPillHtml(entry.meta);
+    if (!html) return;
+    pillPopup.setLatLng(entry.marker.getLatLng()).setContent(html).openOn(map);
+  });
   map.on("moveend zoomend", rerender);
 
   async function loop() {
