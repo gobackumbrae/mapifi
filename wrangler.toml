@@ -9,11 +9,7 @@ GTFS_RT_URL = "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/buses"
 GTFS_RT_AUTH_HEADER = "Authorization"
 GTFS_RT_AUTH_QUERY = ""
 
-# Multi-feed mode (JSON).
-# The Worker will:
-#  - GET all feeds when ?feed=all (default)
-#  - GET just one feed when ?feed=buses / ?feed=ferries / ...
-#  - Skip failing feeds and report them in `errors`
+# Multi-feed mode (JSON)
 GTFS_RT_FEEDS = '''
 [
   {
@@ -26,7 +22,7 @@ GTFS_RT_FEEDS = '''
   {
     "id": "ferries",
     "label": "Ferries",
-    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/ferries",
+    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/ferries/sydneyferries",
     "icon": "/emoji/ferry.png",
     "facing": "right"
   },
@@ -40,8 +36,8 @@ GTFS_RT_FEEDS = '''
   {
     "id": "sydneytrains",
     "label": "Sydney Trains",
-    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/sydneytrains",
-    "icon": "/emoji/metro.png",
+    "url": "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/sydneytrains",
+    "icon": "/emoji/train.png",
     "facing": "right"
   },
   {
@@ -49,6 +45,13 @@ GTFS_RT_FEEDS = '''
     "label": "NSW Trains",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/nswtrains",
     "icon": "/emoji/train.png",
+    "facing": "right"
+  },
+  {
+    "id": "metro",
+    "label": "Metro",
+    "url": "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/metro",
+    "icon": "/emoji/metro.png",
     "facing": "right"
   }
 ]
