@@ -17,7 +17,7 @@ GTFS_RT_FEEDS = '''
     "label": "Buses",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/buses",
     "icon": "/emoji/bus.png",
-    "facing": "right"
+    "facing": "left"
   },
   {
     "id": "ferries",
