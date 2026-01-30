@@ -30,7 +30,7 @@ GTFS_RT_FEEDS = '''
     "id": "lightrail",
     "label": "Light Rail",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/lightrail",
-    "icon": "/emoji/light-rail.png",
+    "icon": "/emoji/tram.png",
     "facing": "left"
   },
   {
