@@ -30,21 +30,21 @@ GTFS_RT_FEEDS = '''
     "id": "lightrail",
     "label": "Light Rail",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/lightrail",
-    "icon": "/emoji/tram.png",
+    "icon": "/emoji/light-rail.png",
     "facing": "right"
   },
   {
     "id": "sydneytrains",
     "label": "Sydney Trains",
     "url": "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/sydneytrains",
-    "icon": "/emoji/locomotive.png",
+    "icon": "/emoji/train.png",
     "facing": "right"
   },
   {
     "id": "nswtrains",
     "label": "NSW Trains",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/nswtrains",
-    "icon": "/emoji/locomotive.png",
+    "icon": "/emoji/train.png",
     "facing": "right"
   },
   {
