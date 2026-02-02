@@ -9,7 +9,7 @@ GTFS_RT_URL = "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/buses"
 GTFS_RT_AUTH_HEADER = "Authorization"
 GTFS_RT_AUTH_QUERY = ""
 
-# Multi-feed mode (JSON)
+# Multi-feed mode (JSON).
 GTFS_RT_FEEDS = '''
 [
   {
@@ -17,42 +17,42 @@ GTFS_RT_FEEDS = '''
     "label": "Buses",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/buses",
     "icon": "/emoji/bus.png",
-    "facing": "left"
+    "facing": "right"
   },
   {
     "id": "ferries",
     "label": "Ferries",
-    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/ferries/sydneyferries",
-    "icon": "/emoji/ferry.png",
+    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/ferries",
+    "icon": "/emoji/motor-boat.png",
     "facing": "right"
   },
   {
     "id": "lightrail",
     "label": "Light Rail",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/lightrail",
-    "icon": "/emoji/light-rail.png",
+    "icon": "/emoji/tram-car.png",
     "facing": "right"
   },
   {
     "id": "sydneytrains",
     "label": "Sydney Trains",
-    "url": "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/sydneytrains",
-    "icon": "/emoji/train.png",
+    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/sydneytrains",
+    "icon": "/emoji/railway-car.png",
     "facing": "right"
   },
   {
     "id": "nswtrains",
     "label": "NSW Trains",
     "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/nswtrains",
-    "icon": "/emoji/train.png",
+    "icon": "/emoji/locomotive.png",
     "facing": "right"
   },
   {
     "id": "metro",
     "label": "Metro",
-    "url": "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/metro",
-    "icon": "/emoji/metro.png",
-    "facing": "left"
+    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/metro",
+    "icon": "/emoji/rocket.png",
+    "facing": "top-right"
   }
 ]
 '''
