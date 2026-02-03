@@ -136,14 +136,86 @@
   }
 
   function applyHeading(marker, bearing, facing) {
-    const el = marker.getElement();
-    if (!el) return;
-    const img = el.querySelector("img");
-    if (!img) return;
-    img.style.transformOrigin = "50% 50%";
-    img.style.willChange = "transform";
-    img.style.transform = transformForBearing(bearing, facing);
+  const el = marker && marker.getElement ? marker.getElement() : null;
+  if (!el) return;
+
+  // Prefer wrapper-based transforms (rotate wrapper, flip image). Fall back to img-only.
+  const rotEl = el.querySelector(".veh-rot") || el.querySelector("img");
+  const img = el.querySelector(".veh-img") || el.querySelector("img");
+  if (!rotEl || !img) return;
+
+  const b = Number(bearing);
+  if (!Number.isFinite(b)) {
+    rotEl.style.transform = "";
+    if (img !== rotEl) img.style.transform = "";
+    return;
   }
+
+  function norm360(x) {
+    x = x % 360;
+    return x < 0 ? x + 360 : x;
+  }
+  function normSigned(x) {
+    x = norm360(x);
+    if (x > 180) x -= 360;
+    return x;
+  }
+  function baseBearingFromFacing(f) {
+    const key = String(f || "").trim().toLowerCase();
+    const map = {
+      up: 0, north: 0,
+      right: 90, east: 90,
+      down: 180, south: 180,
+      left: 270, west: 270,
+
+      "top-right": 45, topright: 45, upright: 45, ne: 45,
+      "top-left": 315, topleft: 315, upleft: 315, nw: 315,
+      "bottom-right": 135, bottomright: 135, downright: 135, se: 135,
+      "bottom-left": 225, bottomleft: 225, downleft: 225, sw: 225
+    };
+    if (Object.prototype.hasOwnProperty.call(map, key)) return map[key];
+
+    // Allow numeric degrees as a string, e.g. "45"
+    const n = Number(key);
+    if (Number.isFinite(n)) return norm360(n);
+
+    return 270; // default "left"
+  }
+
+  // Base direction the art is pointing (bearing degrees from north)
+  const base = baseBearingFromFacing(facing);
+
+  // Horizontal flip mirrors the base direction across the N-S axis
+  const baseFlip = norm360(360 - base);
+
+  // Two candidates:
+  //  - rotate without flip
+  //  - rotate after horizontal flip
+  const rNo = normSigned(b - base);
+  const rFlip = normSigned(b - baseFlip);
+
+  // Choose a representation that keeps the sprite upright (|rotation| <= 90) if possible.
+  const okNo = Math.abs(rNo) <= 90;
+  const okFlip = Math.abs(rFlip) <= 90;
+
+  let useFlip = false;
+  let r = rNo;
+
+  if (okFlip && (!okNo || Math.abs(rFlip) < Math.abs(rNo))) {
+    useFlip = true;
+    r = rFlip;
+  }
+
+  // Apply transforms
+  if (rotEl === img) {
+    img.style.transform = useFlip
+      ? ("rotate(" + r + "deg) scaleX(-1)")
+      : ("rotate(" + r + "deg)");
+  } else {
+    rotEl.style.transform = "rotate(" + r + "deg)";
+    img.style.transform = useFlip ? "scaleX(-1)" : "";
+  }
+}
 
   function withinRenderBounds(lat, lon) {
     if (RENDER_ALL) return true;
