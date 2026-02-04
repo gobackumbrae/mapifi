@@ -108,3 +108,9 @@ html, body {
   opacity: 0.85;
   font-size: 11px;
 }
+
+/* Always show full emoji inside the marker box (no cropped fronts) */
+.leaflet-marker-icon.veh img.veh-img,
+.leaflet-marker-icon.veh img.veh-icon {
+  object-fit: contain !important;
+}
