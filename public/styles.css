@@ -114,3 +114,25 @@ html, body {
 .leaflet-marker-icon.veh img.veh-icon {
   object-fit: contain !important;
 }
+
+/* Marker overflow fix: no clipping */
+.leaflet-marker-icon.veh {
+  overflow: visible !important;
+}
+
+/* Some builds wrap the <img> inside these; ensure NOTHING clips rotation/shadow */
+.leaflet-marker-icon.veh .veh-icon,
+.leaflet-marker-icon.veh .veh-rot {
+  overflow: visible !important;
+}
+
+/* Keep the actual PNG constrained (so it stays 32px), but allow it to draw outside */
+.leaflet-marker-icon.veh img.veh-img,
+.leaflet-marker-icon.veh img.veh-icon {
+  width: 32px !important;
+  height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  object-fit: contain !important;
+  display: block !important;
+}
