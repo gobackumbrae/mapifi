@@ -79,6 +79,10 @@
   const iconCache = new Map(); // iconUrl -> L.DivIcon
 
   // MAPIFI_DERIVED_BEARING: when GTFS bearing is missing, derive heading from GPS movement
+
+  // Feeds where we always derive heading from movement (ignore upstream bearing)
+  const FORCE_DERIVED_FEEDS = new Set(["sydneytrains","nswtrains"]);
+
   function deg2rad(d) { return (d * Math.PI) / 180; }
 
   function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -289,7 +293,8 @@
       const prevLL = entry.marker.getLatLng();
       entry.marker.setLatLng([lat, lon]);
 
-      const b0 = Number(v.bearing);
+      const forceDerived = FORCE_DERIVED_FEEDS.has(feedId);
+      const b0 = forceDerived ? NaN : Number(v.bearing);
       if (Number.isFinite(b0)) {
         entry.lastBearing = b0;
       } else {
@@ -297,7 +302,7 @@
         const prevLon = prevLL && Number.isFinite(prevLL.lng) ? prevLL.lng : NaN;
         if (Number.isFinite(prevLat) && Number.isFinite(prevLon)) {
           const moved = distanceMeters(prevLat, prevLon, lat, lon);
-          if (moved >= 5) {
+          if (moved >= 1) {
             const b1 = bearingBetween(prevLat, prevLon, lat, lon);
             if (Number.isFinite(b1)) entry.lastBearing = b1;
           }
