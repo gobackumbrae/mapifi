@@ -77,6 +77,31 @@
 
   // Icons
   const iconCache = new Map(); // iconUrl -> L.DivIcon
+
+  // MAPIFI_DERIVED_BEARING: when GTFS bearing is missing, derive heading from GPS movement
+  function deg2rad(d) { return (d * Math.PI) / 180; }
+
+  function distanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000; /* meters */
+    const p1 = deg2rad(lat1);
+    const p2 = deg2rad(lat2);
+    const dp = deg2rad(lat2 - lat1);
+    const dl = deg2rad(lon2 - lon1);
+    const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  function bearingBetween(lat1, lon1, lat2, lon2) {
+    const p1 = deg2rad(lat1);
+    const p2 = deg2rad(lat2);
+    const dl = deg2rad(lon2 - lon1);
+    const y = Math.sin(dl) * Math.cos(p2);
+    const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+    const brng = Math.atan2(y, x) * 180 / Math.PI;
+    return normalizeDeg(brng);
+  }
+
   function getIcon(iconUrl) {
     const key = iconUrl || "/emoji/bus.png";
     const cached = iconCache.get(key);
@@ -260,7 +285,25 @@
       }
 
       entry.seenAt = now;
+      // MAPIFI_LAST_BEARING_BLOCK: keep a stable bearing even when feed omits it
+      const prevLL = entry.marker.getLatLng();
       entry.marker.setLatLng([lat, lon]);
+
+      const b0 = Number(v.bearing);
+      if (Number.isFinite(b0)) {
+        entry.lastBearing = b0;
+      } else {
+        const prevLat = prevLL && Number.isFinite(prevLL.lat) ? prevLL.lat : NaN;
+        const prevLon = prevLL && Number.isFinite(prevLL.lng) ? prevLL.lng : NaN;
+        if (Number.isFinite(prevLat) && Number.isFinite(prevLon)) {
+          const moved = distanceMeters(prevLat, prevLon, lat, lon);
+          if (moved >= 5) {
+            const b1 = bearingBetween(prevLat, prevLon, lat, lon);
+            if (Number.isFinite(b1)) entry.lastBearing = b1;
+          }
+        }
+      }
+
 
       if (entry.iconUrl !== iconUrl) {
         entry.iconUrl = iconUrl;
@@ -284,7 +327,7 @@
           entry.marker.addTo(map);
           entry.onMap = true;
         }
-        applyHeading(entry.marker, v.bearing, facing);
+        applyHeading(entry.marker, entry.lastBearing, facing);
       } else {
         if (entry.onMap) {
           map.removeLayer(entry.marker);

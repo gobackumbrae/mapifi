@@ -136,3 +136,8 @@ html, body {
   object-fit: contain !important;
   display: block !important;
 }
+
+/* MAPIFI_NO_CLIP_MARKERS: do not clip rotation/shadow */
+.leaflet-marker-icon.veh {
+  overflow: visible !important;
+}
