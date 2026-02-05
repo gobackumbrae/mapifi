@@ -21,7 +21,7 @@ GTFS_RT_FEEDS = '''
   },
   {
     "id": "ferries",
-    "url": "https://api.transport.nsw.gov.au/v2/gtfs/vehiclepos/ferries/sydneyferries",
+    "url": "https://api.transport.nsw.gov.au/v1/gtfs/vehiclepos/ferries/sydneyferries",
     "label": "Ferries",
     "icon": "/emoji/ferry.png",
     "facing": "right"

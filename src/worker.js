@@ -291,7 +291,7 @@ function buildUpstreamRequest(env, feed) {
     return {
       url,
       headers: {
-        accept: "application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
+        accept: "application/x-google-protobuf, application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
       },
     };
   }
@@ -303,14 +303,14 @@ function buildUpstreamRequest(env, feed) {
     return {
       url: u.toString(),
       headers: {
-        accept: "application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
+        accept: "application/x-google-protobuf, application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
       },
     };
   }
 
   const headerName = ((feed?.auth_header ?? env.GTFS_RT_AUTH_HEADER) || "").trim();
   const headers = {
-    accept: "application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
+    accept: "application/x-google-protobuf, application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.1",
   };
 
   // TfNSW expects: Authorization: apikey <KEY>
@@ -546,21 +546,21 @@ function parsePosition(bytes, dv, start, end) {
     const field = tag >>> 3;
     const wire = tag & 7;
 
-    if (field === 1 && wire === 5) {
-      lat = dv.getFloat32(p, true);
-      p += 4;
+    if (field === 1 && (wire === 5 || wire === 1)) {
+      lat = wire === 5 ? dv.getFloat32(p, true) : dv.getFloat64(p, true);
+      p += wire === 5 ? 4 : 8;
       continue;
     }
 
-    if (field === 2 && wire === 5) {
-      lon = dv.getFloat32(p, true);
-      p += 4;
+    if (field === 2 && (wire === 5 || wire === 1)) {
+      lon = wire === 5 ? dv.getFloat32(p, true) : dv.getFloat64(p, true);
+      p += wire === 5 ? 4 : 8;
       continue;
     }
 
-    if (field === 3 && wire === 5) {
-      bearing = dv.getFloat32(p, true);
-      p += 4;
+    if (field === 3 && (wire === 5 || wire === 1)) {
+      bearing = wire === 5 ? dv.getFloat32(p, true) : dv.getFloat64(p, true);
+      p += wire === 5 ? 4 : 8;
       continue;
     }
 
